@@ -1,2 +1,3 @@
 # RT1
-Ready Trader One Repo
+
+https://readytraderone.com.au/introduction/
