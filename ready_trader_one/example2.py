@@ -12,6 +12,9 @@ class AutoTrader(BaseAutoTrader):
         super(AutoTrader, self).__init__(loop)
         self.order_ids = itertools.count(1)
         self.ask_id = self.ask_price = self.bid_id = self.bid_price = self.position = 0
+        
+        self.average = self.gamma = self.stdev = 0
+        self.z = 0.12566
 
     def on_error_message(self, client_order_id: int, error_message: bytes) -> None:
         """Called when the exchange detects an error."""
@@ -34,13 +37,31 @@ class AutoTrader(BaseAutoTrader):
 
             if self.bid_id == 0 and new_bid_price != 0 and self.position < 100:
                 self.bid_id = next(self.order_ids)
-                self.bid_price = new_bid_price
-                self.send_insert_order(self.bid_id, Side.BUY, new_bid_price, 1, Lifespan.GOOD_FOR_DAY)
+                self.bid_price = int(self.average + self.stdev*self.z)
+                self.send_insert_order(self.bid_id, Side.BUY, self.bid_price, 1, Lifespan.GOOD_FOR_DAY)
 
             if self.ask_id == 0 and new_ask_price != 0 and self.position > -100:
                 self.ask_id = next(self.order_ids)
-                self.ask_price = new_ask_price
-                self.send_insert_order(self.ask_id, Side.SELL, new_ask_price, 1, Lifespan.GOOD_FOR_DAY)
+                self.ask_price = int(self.average - self.stdev*self.z)
+                self.send_insert_order(self.ask_id, Side.SELL, self.ask_price, 1, Lifespan.GOOD_FOR_DAY)
+
+
+    def on_trade_ticks_message(self, instrument, trade_ticks):
+        if instrument == Instrument.FUTURE:
+            total = 0
+            volume = 0
+            for i in range(len(trade_ticks)):
+                total += trade_ticks[i][0]*trade_ticks[i][1]
+                volume += trade_ticks[i][1]
+            average = total/volume
+            self.average = (self.average*self.gamma + average)/(1+self.gamma)
+            
+            s = 0
+            for i in range(len(trade_ticks)):
+                s += trade_ticks[i][1]*(self.average - trade_ticks[i][0])**2
+            s = s/(volume - 1)
+            s = s**0.5
+            self.stdev = s
 
     def on_order_status_message(self, client_order_id: int, fill_volume: int, remaining_volume: int, fees: int) -> None:
         """Called when the status of one of your orders changes."""
